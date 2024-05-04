@@ -14,7 +14,7 @@ from rouge_chinese import Rouge
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 預先加載 model 和 tokenizer
-FINE_TUNED_MODEL_NAME = 'taide_markdown_v2-full'
+FINE_TUNED_MODEL_NAME = 'taide_markdown_v3-full'
 ORIGINAL_MODEL_NAME = '/user_data/llama2_lora_drcd/taide_model/b.11.0.0'
 fine_tuned_tokenizer = AutoTokenizer.from_pretrained(FINE_TUNED_MODEL_NAME)
 fine_tuned_model = AutoModelForCausalLM.from_pretrained(FINE_TUNED_MODEL_NAME, load_in_8bit=True, device_map='auto')
@@ -36,9 +36,9 @@ def load_json_data(filename: str) -> List[Dict[str, Any]]:
 
 def get_taide_prompt(document: str, question: str) -> str:
     """產生TAIDE針對農業病蟲害問題的prompt。"""
-    system_prompt = '<<SYS>>\n你是一位農業病蟲害防治專家，你將看到一份markdown格式的表格，你的任務是根據此表格尋找答案並回答，回答時只需要輸出答案，不需輸出其他資訊\n<</SYS>>\n\n'
+    system_prompt = '你是一位農業病蟲害防治專家，你將看到一份markdown格式的表格，你的任務是根據此表格尋找答案並回答，回答時只需要輸出答案，不需輸出其他資訊。'
     user_message = f"問題：\n{question}\n\n表格：\n{document}\n\n"
-    return f"[INST] {system_prompt}\n{user_message} [/INST]"
+    return f"[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n{user_message} [/INST]"
 
 def get_gpt_prompt(question: str, reference_article: str, answer1: str, answer2: str, gpt_answer: str) -> str:
     """根據問題和文章產生GPT的prompt。"""
