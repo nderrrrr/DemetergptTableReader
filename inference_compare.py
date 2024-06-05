@@ -14,31 +14,47 @@ from rouge_chinese import Rouge
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 預先加載 model 和 tokenizer
-FINE_TUNED_MODEL_NAME = 'taide_markdown_v3-full'
-ORIGINAL_MODEL_NAME = '/user_data/llama2_lora_drcd/taide_model/b.11.0.0'
+FINE_TUNED_MODEL_NAME = 'model/taide_markdown_v3-full'
+ORIGINAL_MODEL_NAME = 'model/Llama3-TAIDE-LX-8B-Chat-Alpha1'
 fine_tuned_tokenizer = AutoTokenizer.from_pretrained(FINE_TUNED_MODEL_NAME)
 fine_tuned_model = AutoModelForCausalLM.from_pretrained(FINE_TUNED_MODEL_NAME, load_in_8bit=True, device_map='auto')
 original_tokenizer = AutoTokenizer.from_pretrained(ORIGINAL_MODEL_NAME)
 original_model = AutoModelForCausalLM.from_pretrained(ORIGINAL_MODEL_NAME, load_in_8bit=True, device_map='auto')
 
-def load_json_data(filename: str) -> List[Dict[str, Any]]:
-    """從JSON文件中加載數據。"""
-    try:
-        with open(filename, "r", encoding='utf-8') as file:
-            return json.load(file)
-    except FileNotFoundError:
-        print("錯誤：未找到檔案。")
-    except json.JSONDecodeError:
-        print("錯誤：檔案格式不正確。")
-    except Exception as e:
-        print(f"發生了意外錯誤：{e}")
-    return []
+load_dotenv(".env")
+client = OpenAI(api_key=os.getenv('openai_api_key'))
 
-def get_taide_prompt(document: str, question: str) -> str:
+def load_json_data(file_path: str) -> List[Dict[str, Any]]:
+    """從指定路徑讀取JSON文件，並處理潛在的例外情況。"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+        file_name = os.path.basename(file_path)
+        print(f"文件 {file_name} 讀取成功，共讀取到 {len(data)} 筆數據。")
+        return data
+    except FileNotFoundError:
+        print(f"Error: The file '{os.path.basename(file_path)}' does not exist.")
+    except json.JSONDecodeError:
+        print(f"Error: The file '{os.path.basename(file_path)}' contains invalid JSON.")
+    except Exception as e:
+        print(f"Error: An unexpected error occurred: {e}")
+    return None
+
+def get_taide_prompt(document: str, question: str, version: str = 'llama3') -> str:
     """產生TAIDE針對農業病蟲害問題的prompt。"""
-    system_prompt = '你是一位農業病蟲害防治專家，你將看到一份markdown格式的表格，你的任務是根據此表格尋找答案並回答，回答時只需要輸出答案，不需輸出其他資訊。'
-    user_message = f"問題：\n{question}\n\n表格：\n{document}\n\n"
-    return f"[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n{user_message} [/INST]"
+    if version == "llama2":
+        system_prompt = '你是一位農業病蟲害防治專家，你將看到一份markdown格式的表格，你的任務是根據此表格尋找答案並回答，回答時只需要輸出答案，不需輸出其他資訊。'
+        user_message = f"問題：\n{question}\n\n表格：\n{document}\n\n"
+        return f"[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n{user_message} [/INST]"   
+     
+    elif version == "llama3":
+        system_prompt = "你是一個來自台灣的AI助理，你的名字是 TAIDE，樂於以台灣人的立場幫助使用者，會用繁體中文回答問題。"
+        user_message = f"你是一位農業病蟲害防治專家，你將看到一份markdown格式的表格，你的任務是根據此表格尋找答案並回答，回答時只需要輸出答案，不需輸出其他資訊。\n問題:\n{question}\n\n表格:\n{document}"
+        return f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>{user_message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+    
+    else:
+        user_message = f"你是一位農業病蟲害防治專家，你將看到一份markdown格式的表格，你的任務是根據此表格尋找答案並回答，回答時只需要輸出答案，不需輸出其他資訊。\n問題:\n{question}\n\n表格:\n{document}"
+        return user_message
 
 def get_gpt_prompt(question: str, reference_article: str, answer1: str, answer2: str, gpt_answer: str) -> str:
     """根據問題和文章產生GPT的prompt。"""
@@ -104,9 +120,9 @@ def get_gpt_decision(question: str, document: str, answer1: str, answer2: str, g
     if best_answer is None:
         return None
     elif best_answer == 1:
-        return "original" if is_original_first else "fine_tuned"
+        return "raw" if is_original_first else "tuned"
     elif best_answer == 2:
-        return "fine_tuned" if is_original_first else "original"
+        return "tuned" if is_original_first else "raw"
     elif best_answer == 3:
         return "equal"
     else:
@@ -128,46 +144,50 @@ def calculate_rouge_score(hypothesis: str, reference: str) -> Dict[str, float]:
     }
         
 if __name__ == "__main__":
-    load_dotenv(".env")
-    client = OpenAI(api_key=os.getenv('openai_api_key'))
-    data = load_json_data('generated_data_60_new.json')  # 待比較的數據
-    print(f"總共加載了 {len(data)} 筆數據。")
-
-    output_filename = "train_compare_60_v2.json"  # 輸出檔案名稱
-    results: List[Dict[str, Any]] = []
+    input_filepath = "dataset/generate/generated_data_60_new.json"  # 輸入檔案名稱
+    output_filepath = "dataset/compare/test_compare_60_v4.json"  # 輸出檔案名稱
+    
+    data = load_json_data(input_filepath)
+    
+    results = []
     half_data_len = len(data) // 2
 
     for index, item in enumerate(tqdm(data, desc="處理進度")):
         is_original_first = index < half_data_len  # 資料後半段調換答案擺放順序
         
-        prompt = get_taide_prompt(item['document'], item['question'])
-        original_answer = get_taide_reply(original_tokenizer, original_model, prompt)
-        fine_tuned_answer = get_taide_reply(fine_tuned_tokenizer, fine_tuned_model, prompt)
+        document = item['document']
+        question = item['question']
+        answer = item['answer']
+        
+        prompt_original = get_taide_prompt(document, question, version='llama3')
+        original_answer = get_taide_reply(original_tokenizer, original_model, prompt_original)
+        prompt_tuned = get_taide_prompt(document, question, version='llama3')
+        fine_tuned_answer = get_taide_reply(fine_tuned_tokenizer, fine_tuned_model, prompt_tuned)
           
-        if is_original_first:  # 資料後半段調換答案擺放順序
-            best_answer = get_gpt_decision(item['question'], item['document'], original_answer, fine_tuned_answer, is_original_first)
-        else:
-            best_answer = get_gpt_decision(item['question'], item['document'], fine_tuned_answer, original_answer, is_original_first)
+        # if is_original_first:  # 資料後半段調換答案擺放順序
+        #     best_answer = get_gpt_decision(question, document, original_answer, fine_tuned_answer, is_original_first)
+        # else:
+        #     best_answer = get_gpt_decision(question, document, fine_tuned_answer, original_answer, is_original_first)
         
         rouge_scores = {
-            'gpt_vs_fine_tuned': calculate_rouge_score(item['answer'], fine_tuned_answer),
-            'gpt_vs_original': calculate_rouge_score(item['answer'], original_answer)
+            'ground_truth_vs_llama3': calculate_rouge_score(answer, fine_tuned_answer),
+            'ground_truth_vs_llama2': calculate_rouge_score(answer, original_answer)
         }
         
         data_entry = {
             'id': index,
-            'document': item['document'],
-            'question': item['question'],
-            'best_answer': best_answer,
+            'document': document,
+            'question': question,
+            # 'best_answer': best_answer,
             'answers': {
-                'gpt': item['answer'],
-                'fine_tuned': fine_tuned_answer,
-                'original': original_answer
+                'ground_truth': answer,
+                'tuned': fine_tuned_answer,
+                'raw': original_answer
             },
             'rouge_scores': rouge_scores
         }
         results.append(data_entry)
 
-    with open(output_filename, 'w', encoding='utf-8') as outfile:
+    with open(output_filepath, 'w', encoding='utf-8') as outfile:
         json.dump(results, outfile, ensure_ascii=False, indent=4)
-        print(f"結果已成功儲存至 {output_filename}。")
+        print(f"結果已成功儲存至 {output_filepath}。")
