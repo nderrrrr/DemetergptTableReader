@@ -11,13 +11,13 @@ lora_alpha = lora_r * 2
 lora_dropout = 0.1
 
 # training configuration
-model_path = "../llama2_lora_drcd/taide_model/b.11.0.0" # 原始模型
-new_model_name = "taide_markdown_v2" # 訓練好的模型
-train_dataset_path = "dataset/train/markdown_taide_train.json"
-test_dataset_path = "dataset/train/markdown_taide_dev.json"
-output_dir = "./results" # tensorboard結果
-instruction_template = "[INST]"
-response_template = "[/INST]"
+model_path = "model/Llama3-TAIDE-LX-8B-Chat-Alpha1" # 原始模型
+new_model_name = "taide_markdown_v5" # 訓練好的模型
+train_dataset_path = "dataset/train/agri_llama3_train_v2.json"
+test_dataset_path = "dataset/train/agri_llama3_dev_v2.json"
+output_dir = "model/results" # tensorboard結果
+instruction_template = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>"
+response_template = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
 fp16 = False
 bf16 = True
 
@@ -41,7 +41,7 @@ device_map = "auto"
 # load tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 tokenizer.pad_token = "[PAD]" # use when tokenizer.pad_token is none or eos_token
-tokenizer.add_eos_token = True
+tokenizer.add_eos_token = True # 訓練資料不要加eos_token "</s>"
 tokenizer.padding_side = "right"
 
 # load model
