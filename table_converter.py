@@ -27,6 +27,22 @@ def load_json(file_path: str):
         print(f"Error: An unexpected error occurred: {e}")
     return None
 
+def load_used_id(*file_paths: str) -> set:
+    """從多個指定的 JSON 文件中加載已經使用過的文檔。"""
+    used_ids = set()
+    for file_path in file_paths:
+        try:
+            with open(file_path, "r", encoding='utf-8') as file:
+                data = json.load(file)
+                used_ids.update(entry['id'] for entry in data)
+        except FileNotFoundError:
+            print(f"Error: The file '{os.path.basename(file_path)}' does not exist.")
+        except json.JSONDecodeError:
+            print(f"Error: The file '{os.path.basename(file_path)}' contains invalid JSON.")
+        except Exception as e:
+            print(f"Error: An unexpected error occurred: {e}")
+    return used_ids
+
 def convert_to_markdown(table: Dict[str, Any]) -> str:
     """將給定的表格轉換為Markdown格式。"""
     header = table['header']
@@ -107,18 +123,17 @@ def save_to_json(file_path: str, data: list):
         json.dump(data, file, ensure_ascii=False, indent=4)
     print(f"數據已保存到 {file_path}，總共 {len(data)} 筆資料。")
 
-
 if __name__ == "__main__":
-    file = '1000'
+    file = '200'
     
     file_path = f'dataset/wiki_table_question/WTQ_{file}.json'
-    output_file_with_answer = f'dataset/wiki_table_question/WTQ_{file}_markdown_with_answer.json'
-    output_file_all = f'dataset/wiki_table_question/WTQ_{file}_markdown_all.json'
-    
+    output_file = f'dataset/wiki_table_question/WTQ_{file}_markdown_all.json'
     data = load_json(file_path)
     
-    output_data_with_answer = []
-    output_data_all = []
+    used_file = 'dataset/wiki_table_question/WTQ_1000_markdown_zh.json'
+    used_ids = load_used_id(used_file)
+    
+    output_data = []
         
     for entry in tqdm(data, desc="資料轉換進度"):
         id = entry['id']
@@ -126,28 +141,20 @@ if __name__ == "__main__":
         table = entry['table']
         answers = entry['answers']
         
+        if id in used_ids:
+            continue
+        
         markdown_table = convert_to_markdown(table)
         prompt = get_gpt_prompt(question, markdown_table, answers)
         reply = get_gpt_reply(prompt)
         parsed_reply = parse_output(reply)
         
         if parsed_reply == {}:
-            add_to_output(output_data_all, id, question, markdown_table, answers)
+            add_to_output(output_data, id, question, markdown_table, answers)
         else:
             question_zh = parsed_reply['question']
             markdown_table_zh = parsed_reply['markdown_table']
-            answers_zh = parsed_reply['answers']
-            
-            answer_in_table_en = any(answer in markdown_table for answer in answers)
-            answer_in_table_zh = any(answer in markdown_table_zh for answer in answers_zh)
-            
-            if answer_in_table_zh:
-                add_to_output(output_data_all, id, question_zh, markdown_table_zh, answers_zh)
-                add_to_output(output_data_with_answer, id, question_zh, markdown_table_zh, answers_zh)
-            else:
-                add_to_output(output_data_all, id, question_zh, markdown_table_zh, answers_zh)
-                if answer_in_table_en:
-                    add_to_output(output_data_with_answer, id, question, markdown_table, answers)
-    
-    save_to_json(output_file_with_answer, output_data_with_answer)
-    save_to_json(output_file_all, output_data_all)
+            answers_zh = parsed_reply['answers']            
+            add_to_output(output_data, id, question_zh, markdown_table_zh, answers_zh)
+
+    save_to_json(output_file, output_data)
